@@ -334,21 +334,29 @@ int hdd_hif_open(struct device *dev, void *bdev, const struct hif_bus_id *bid,
 	struct hif_driver_state_callbacks cbk;
 	uint32_t mode = cds_get_conparam();
 	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
+	pr_err("WLAN_DIAG: hdd_hif_open ENTER mode=%u bus=%d reinit=%d qdf=%s hdd=%s\n",
+	       mode, bus_type, reinit,
+	       qdf_ctx ? "SET" : "NULL",
+	       hdd_ctx ? "SET" : "NULL");
 
 	if (!hdd_ctx) {
 		hdd_err("hdd_ctx error");
+		pr_err("WLAN_DIAG: hdd_hif_open HDD_CTX=NULL ret=-14\n");
 		return -EFAULT;
 	}
 
 	hdd_hif_init_driver_state_callbacks(dev, &cbk);
 
 	hif_ctx = hif_open(qdf_ctx, mode, bus_type, &cbk, hdd_ctx->psoc);
+	pr_err("WLAN_DIAG: hif_open result=%s\n",
+	       hif_ctx ? "SET" : "NULL");
 	if (!hif_ctx) {
 		hdd_err("hif_open error");
 		return -ENOMEM;
 	}
 
 	ret = hdd_init_cds_hif_context(hif_ctx);
+	pr_err("WLAN_DIAG: hdd_init_cds_hif_context ret=%d\n", ret);
 	if (ret) {
 		hdd_err("Failed to set global HIF CDS Context err: %d", ret);
 		goto err_hif_close;
@@ -359,15 +367,18 @@ int hdd_hif_open(struct device *dev, void *bdev, const struct hif_bus_id *bid,
 	status = hif_enable(hif_ctx, dev, bdev, bid, bus_type,
 			    (reinit == true) ?  HIF_ENABLE_TYPE_REINIT :
 			    HIF_ENABLE_TYPE_PROBE);
+	pr_err("WLAN_DIAG: hif_enable status=%d\n", status);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {
 		hdd_err("hif_enable failed status: %d, reinit: %d",
 			status, reinit);
 
 		ret = qdf_status_to_os_return(status);
+		pr_err("WLAN_DIAG: hif_enable mapped ret=%d\n", ret);
 		goto err_hif_close;
 	} else {
 		cds_set_target_ready(true);
 		ret = hdd_napi_create();
+		pr_err("WLAN_DIAG: hdd_napi_create ret=%d\n", ret);
 		hdd_debug("hdd_napi_create returned: %d", ret);
 		if (ret == 0)
 			hdd_debug("NAPI: no instances are created");
@@ -436,9 +447,11 @@ static int hdd_init_qdf_ctx(struct device *dev, void *bdev,
 			    const struct hif_bus_id *bid)
 {
 	qdf_device_t qdf_dev = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
+	pr_err("WLAN_DIAG: hdd_init_qdf_ctx ENTER bus_type=%d\n", bus_type);
 
 	if (!qdf_dev) {
 		hdd_err("Invalid QDF device");
+		pr_err("WLAN_DIAG: hdd_init_qdf_ctx QDF_DEVICE=NULL ret=-22\n");
 		return -EINVAL;
 	}
 
@@ -450,6 +463,7 @@ static int hdd_init_qdf_ctx(struct device *dev, void *bdev,
 	if (cds_smmu_mem_map_setup(qdf_dev, ucfg_ipa_is_present()) !=
 		QDF_STATUS_SUCCESS) {
 		hdd_err("cds_smmu_mem_map_setup() failed");
+		pr_err("WLAN_DIAG: cds_smmu_mem_map_setup FAILED ret=-14\n");
 		return -EFAULT;
 	}
 

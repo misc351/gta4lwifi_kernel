@@ -11356,10 +11356,12 @@ static int hdd_context_init(struct hdd_context *hdd_ctx)
 	qdf_list_create(&hdd_ctx->hdd_adapters, 0);
 
 	ret = hdd_scan_context_init(hdd_ctx);
+	pr_err("WLAN_DIAG: hdd_scan_context_init ret=%d\n", ret);
 	if (ret)
 		goto list_destroy;
 
 	ret = hdd_sap_context_init(hdd_ctx);
+	pr_err("WLAN_DIAG: hdd_sap_context_init ret=%d\n", ret);
 	if (ret)
 		goto scan_destroy;
 
@@ -11369,6 +11371,7 @@ static int hdd_context_init(struct hdd_context *hdd_ctx)
 
 	ret = wlan_hdd_cfg80211_init(hdd_ctx->parent_dev, hdd_ctx->wiphy,
 				     hdd_ctx->config);
+	pr_err("WLAN_DIAG: wlan_hdd_cfg80211_init ret=%d\n", ret);
 	if (ret)
 		goto sap_destroy;
 
