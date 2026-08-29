@@ -460,8 +460,9 @@ static int hdd_init_qdf_ctx(struct device *dev, void *bdev,
 	qdf_dev->bus_type = bus_type;
 	qdf_dev->bid = bid;
 
-	if (cds_smmu_mem_map_setup(qdf_dev, ucfg_ipa_is_present()) !=
-		QDF_STATUS_SUCCESS) {
+	pr_err("WLAN_DIAG: TEST forcing IPA absent for SMMU setup\\n");
+	if (cds_smmu_mem_map_setup(qdf_dev, false) !=
+	    QDF_STATUS_SUCCESS) {
 		hdd_err("cds_smmu_mem_map_setup() failed");
 		pr_err("WLAN_DIAG: cds_smmu_mem_map_setup FAILED ret=-14\n");
 		return -EFAULT;
