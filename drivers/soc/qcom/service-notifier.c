@@ -533,6 +533,11 @@ static void *add_service_notif(const char *service_path, int instance_id,
 		goto exit;
 	}
 
+	pr_info("Looking up notifier service id=%u version=%u instance=%d path=%s\n",
+		SERVREG_NOTIF_SERVICE_ID,
+		SERVREG_NOTIF_SERVICE_VERS_V01,
+		instance_id, service_path);
+
 	qmi_add_lookup(&qmi_data->clnt_handle,
 			SERVREG_NOTIF_SERVICE_ID,
 			SERVREG_NOTIF_SERVICE_VERS_V01,

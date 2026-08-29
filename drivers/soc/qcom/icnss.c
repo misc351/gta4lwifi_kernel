@@ -1945,7 +1945,7 @@ static int icnss_get_service_location_notify(struct notifier_block *nb,
 		if (duplicate)
 			continue;
 
-		icnss_pr_dbg("%d: domain_name: %s, instance_id: %d\n", i,
+		icnss_pr_info("%d: domain_name: %s, instance_id: %d\n", i,
 			     pd->domain_list[i].name,
 			     pd->domain_list[i].instance_id);
 
@@ -1971,7 +1971,7 @@ static int icnss_get_service_location_notify(struct notifier_block *nb,
 
 	set_bit(ICNSS_PDR_REGISTERED, &priv->state);
 
-	icnss_pr_dbg("PD notification registration happened, state: 0x%lx\n",
+	icnss_pr_info("PD notification registration happened, state: 0x%lx\n",
 		     priv->state);
 
 	return NOTIFY_OK;

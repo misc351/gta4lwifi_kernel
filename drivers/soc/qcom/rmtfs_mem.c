@@ -23,8 +23,10 @@
 #include <linux/uaccess.h>
 #include <linux/io.h>
 #include <linux/qcom_scm.h>
+#include <soc/qcom/secure_buffer.h>
 
 #define QCOM_RMTFS_MEM_DEV_MAX	(MINORMASK + 1)
+#define NUM_MAX_VMIDS		2
 
 static dev_t qcom_rmtfs_mem_major;
 
@@ -132,6 +134,11 @@ static int qcom_rmtfs_mem_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+static struct class rmtfs_class = {
+	.owner = THIS_MODULE,
+	.name = "rmtfs",
+};
+
 static const struct file_operations qcom_rmtfs_mem_fops = {
 	.owner = THIS_MODULE,
 	.open = qcom_rmtfs_mem_open,
@@ -153,12 +160,15 @@ static void qcom_rmtfs_mem_release_device(struct device *dev)
 static int qcom_rmtfs_mem_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
-	struct qcom_scm_vmperm perms[2];
 	struct reserved_mem *rmem;
 	struct qcom_rmtfs_mem *rmtfs_mem;
 	u32 client_id;
-	u32 vmid;
-	int ret;
+	u32 vmid[NUM_MAX_VMIDS];
+	u32 source_vmlist[1] = { VMID_HLOS };
+	int dest_vmids[NUM_MAX_VMIDS + 1];
+	int dest_perms[NUM_MAX_VMIDS + 1];
+	int num_vmids;
+	int ret, i;
 
 	rmem = of_reserved_mem_lookup(node);
 	if (!rmem) {
@@ -199,6 +209,7 @@ static int qcom_rmtfs_mem_probe(struct platform_device *pdev)
 
 	dev_set_name(&rmtfs_mem->dev, "qcom_rmtfs_mem%d", client_id);
 	rmtfs_mem->dev.id = client_id;
+	rmtfs_mem->dev.class = &rmtfs_class;
 	rmtfs_mem->dev.devt = MKDEV(MAJOR(qcom_rmtfs_mem_major), client_id);
 
 	ret = cdev_device_add(&rmtfs_mem->cdev, &rmtfs_mem->dev);
@@ -207,30 +218,50 @@ static int qcom_rmtfs_mem_probe(struct platform_device *pdev)
 		goto put_device;
 	}
 
-	ret = of_property_read_u32(node, "qcom,vmid", &vmid);
-	if (ret < 0 && ret != -EINVAL) {
+num_vmids = of_property_count_u32_elems(node, "qcom,vmid");
+if (num_vmids == -EINVAL) {
+	num_vmids = 0;
+} else if (num_vmids < 0) {
+	dev_err(&pdev->dev, "failed to count qcom,vmid: %d\n",
+		num_vmids);
+	ret = num_vmids;
+	goto remove_cdev;
+} else if (num_vmids > NUM_MAX_VMIDS) {
+	dev_warn(&pdev->dev, "too many VMIDs, using first %d\n",
+		 NUM_MAX_VMIDS);
+	num_vmids = NUM_MAX_VMIDS;
+}
+
+if (num_vmids) {
+	ret = of_property_read_u32_array(node, "qcom,vmid",
+					 vmid, num_vmids);
+	if (ret) {
 		dev_err(&pdev->dev, "failed to parse qcom,vmid\n");
 		goto remove_cdev;
-	} else if (!ret) {
-		if (!qcom_scm_is_available()) {
-			ret = -EPROBE_DEFER;
-			goto remove_cdev;
-		}
-
-		perms[0].vmid = QCOM_SCM_VMID_HLOS;
-		perms[0].perm = QCOM_SCM_PERM_RW;
-		perms[1].vmid = vmid;
-		perms[1].perm = QCOM_SCM_PERM_RW;
-
-		rmtfs_mem->perms = BIT(QCOM_SCM_VMID_HLOS);
-		ret = qcom_scm_assign_mem(rmtfs_mem->addr, rmtfs_mem->size,
-					  &rmtfs_mem->perms, perms, 2);
-		if (ret < 0) {
-			dev_err(&pdev->dev, "assign memory failed\n");
-			goto remove_cdev;
-		}
 	}
 
+	dest_vmids[0] = VMID_HLOS;
+	dest_perms[0] = PERM_READ | PERM_WRITE;
+
+	for (i = 0; i < num_vmids; i++) {
+		dest_vmids[i + 1] = vmid[i];
+		dest_perms[i + 1] = PERM_READ | PERM_WRITE;
+	}
+
+	ret = hyp_assign_phys(rmtfs_mem->addr, rmtfs_mem->size,
+			      source_vmlist, 1,
+			      dest_vmids, dest_perms,
+			      num_vmids + 1);
+	if (ret) {
+		dev_err(&pdev->dev,
+			"hyp_assign_phys failed: %d\n", ret);
+		goto remove_cdev;
+	}
+
+	dev_info(&pdev->dev,
+		 "RMTFS permissions assigned to HLOS + %d VMID(s)\n",
+		 num_vmids);
+}
 	dev_set_drvdata(&pdev->dev, rmtfs_mem);
 
 	return 0;
@@ -281,28 +312,36 @@ static int qcom_rmtfs_mem_init(void)
 {
 	int ret;
 
+	ret = class_register(&rmtfs_class);
+	if (ret)
+		return ret;
+
 	ret = alloc_chrdev_region(&qcom_rmtfs_mem_major, 0,
-				  QCOM_RMTFS_MEM_DEV_MAX, "qcom_rmtfs_mem");
+				  QCOM_RMTFS_MEM_DEV_MAX,
+				  "qcom_rmtfs_mem");
 	if (ret < 0) {
-		pr_err("qcom_rmtfs_mem: failed to allocate char dev region\n");
+		class_unregister(&rmtfs_class);
 		return ret;
 	}
 
 	ret = platform_driver_register(&qcom_rmtfs_mem_driver);
 	if (ret < 0) {
-		pr_err("qcom_rmtfs_mem: failed to register rmtfs_mem driver\n");
 		unregister_chrdev_region(qcom_rmtfs_mem_major,
 					 QCOM_RMTFS_MEM_DEV_MAX);
+		class_unregister(&rmtfs_class);
 	}
 
 	return ret;
 }
+
 module_init(qcom_rmtfs_mem_init);
 
 static void qcom_rmtfs_mem_exit(void)
 {
 	platform_driver_unregister(&qcom_rmtfs_mem_driver);
-	unregister_chrdev_region(qcom_rmtfs_mem_major, QCOM_RMTFS_MEM_DEV_MAX);
+	unregister_chrdev_region(qcom_rmtfs_mem_major,
+				 QCOM_RMTFS_MEM_DEV_MAX);
+	class_unregister(&rmtfs_class);
 }
 module_exit(qcom_rmtfs_mem_exit);
 
